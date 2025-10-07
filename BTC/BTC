@@ -1,0 +1,748 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <title>BTC/ETH 回撤進場策略回測 & 即時日線（Binance）</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <!-- SheetJS：非模組版，提供全域 window.XLSX（供左側回測用 & 解析 CSV） -->
+  <script src="https://unpkg.com/xlsx/dist/xlsx.full.min.js"></script>
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <style>
+    :root{--bg:#0b0f14;--panel:#121822;--panel-2:#0e141d;--muted:#9aa4b2;--text:#e7ecf3;--border:#1f2937;--ok:#22c55e;--warn:#f59e0b;--bad:#ef4444;}
+    html{ overflow-y: scroll; } /* 永遠保留垂直捲軸，避免版寬抖動 */
+    *{box-sizing:border-box}
+    body{margin:0;font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans TC","PingFang TC","Microsoft JhengHei",Arial,sans-serif;background:radial-gradient(1000px 600px at 70% -10%,#0c1724 0%,#0b0f14 55%);color:var(--text)}
+    header{padding:28px 20px 12px;border-bottom:1px solid var(--border);background:linear-gradient(180deg,rgba(255,255,255,.02),transparent)}
+    h1{margin:0 0 6px;font-size:22px;letter-spacing:.3px}.sub{color:var(--muted);font-size:13px}
+    main{padding:18px;max-width:1200px;margin:0 auto}.grid{display:grid;grid-template-columns:340px 1fr;gap:16px}
+    @media(max-width:980px){.grid{grid-template-columns:1fr}}
+    .card{background:linear-gradient(180deg,rgba(255,255,255,.03),rgba(255,255,255,0));border:1px solid var(--border);border-radius:14px;padding:16px}
+    .section-title{font-size:14px;color:var(--muted);margin:0 0 10px;letter-spacing:.2px}
+    .controls .row{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px}
+    .controls label{display:block;font-size:12px;color:var(--muted);margin-bottom:6px}
+    .controls input[type=file],.controls input[type=number],.controls select{width:100%;background:var(--panel-2);color:var(--text);border:1px solid var(--border);border-radius:10px;padding:10px 12px;outline:none}
+    .pill{display:inline-block;padding:2px 8px;font-size:12px;border-radius:999px;border:1px solid var(--border);color:var(--muted)}
+    .summary{display:grid;grid-template-columns:repeat(6,1fr);gap:10px}
+    @media(max-width:980px){.summary{grid-template-columns:repeat(2,1fr)}}
+    .metric{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:12px}
+    .metric .k{font-size:12px;color:var(--muted)} .metric .v{font-size:18px;margin-top:6px}
+    .metric.ok .v{color:var(--ok)} .metric.bad .v{color:var(--bad)} .metric.warn .v{color:var(--warn)}
+    .chart-wrap{padding:10px 6px; height:360px;} /* 固定圖容器高度 */
+    #liveChart, #chart { width:100% !important; height:100% !important; } /* 避免尺寸抖動 */
+    table{width:100%;border-collapse:collapse;border:1px solid var(--border);background:var(--panel);border-radius:12px;overflow:hidden}
+    th,td{border-bottom:1px solid var(--border);padding:10px 12px;font-size:13px} th{text-align:left;color:var(--muted);background:rgba(255,255,255,.02);position:sticky;top:0}
+    tbody tr:hover{background:rgba(255,255,255,.03)} .footnote{color:var(--muted);font-size:12px;margin-top:8px}
+    button{background:transparent;border:1px solid var(--border);border-radius:10px;padding:8px 12px;color:var(--text);cursor:pointer}
+    button:disabled{opacity:.5;cursor:not-allowed}
+    .scrollbox{ max-height:300px; overflow:auto; scrollbar-gutter: stable; }
+  </style>
+</head>
+<body>
+<header>
+  <h1>BTC / ETH 回撤進場策略回測（上傳檔） + 即時日線（Binance）</h1>
+  <div class="sub">左：上傳 Excel/CSV 回測（保留原功能）。右上：<b>直接抓 Binance 日線</b>，秒級現價 + 近 N 日滾動高點與觸發價水平線，可切換 BTC/USDT 與 ETH/USDT，並選擇顯示區間。</div>
+</header>
+
+<main class="grid">
+  <!-- 左：控制面板（原本回測區，保留） -->
+  <section class="card controls">
+    <h3 class="section-title">資料與參數（回測用）</h3>
+
+    <div class="row">
+      <div>
+        <label>選擇 Excel（含「日期」「收市」）或 CSV</label>
+        <input accept=".xlsx,.xls,.csv" id="file" type="file" />
+      </div>
+      <div>
+        <label>狀態</label>
+        <div class="pill" id="status">等待選檔</div>
+      </div>
+    </div>
+
+    <div class="row">
+      <div>
+        <label>期間（近）</label>
+        <select id="years">
+          <option value="1">1 年</option>
+          <option value="2">2 年</option>
+          <option value="3" selected>3 年</option>
+        </select>
+      </div>
+      <div>
+        <label>滾動高點視窗（亦影響右側即時圖）</label>
+        <select id="rolling">
+          <option value="60">60 天</option>
+          <option value="90" selected>90 天</option>
+          <option value="120">120 天</option>
+          <option value="180">180 天</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="row">
+      <div>
+        <label>回撤觸發 (%)（亦影響右側即時圖）</label>
+        <input id="dd" type="number" min="1" max="80" step="1" value="20" />
+      </div>
+      <div>
+        <label>槓桿上限 (&times;)（回測用）</label>
+        <input id="lev" type="number" min="1" max="100" step="1" value="25" />
+      </div>
+    </div>
+
+    <div class="row">
+      <div>
+        <label>固定保證金 (USD)（回測用）</label>
+        <input id="margin" type="number" min="100" step="100" value="3000" />
+      </div>
+      <div>
+        <label>每次進場名目 (USD)（回測用）</label>
+        <input id="lot" type="number" min="100" step="100" value="10000" />
+      </div>
+    </div>
+
+    <div class="row">
+      <div>
+        <label>每季最多的進場次數（回測用）</label>
+        <select id="maxPerQ">
+          <option value="1">1 次</option>
+          <option value="2">2 次</option>
+          <option value="3" selected>3 次</option>
+          <option value="4">4 次</option>
+          <option value="5">5 次</option>
+        </select>
+      </div>
+      <div></div>
+    </div>
+
+    <div class="footnote">
+      回測只讀 Excel/CSV 中標題為「日期 / 收市」的欄位（大小寫與常見變體自動辨識）。
+      報酬以<b>保證金為基準</b>；任一日淨值 ≤ 0 視為爆倉（ROI = -100%）。
+    </div>
+  </section>
+
+  <!-- 右：結果 + 新的即時日線 -->
+  <section class="card">
+
+    <!-- ✅ 全新：可切換交易對與區間的即時日線（不需上傳） -->
+    <section class="card" style="margin-bottom:14px;">
+      <h3 class="section-title">
+        即時日線（Binance
+        <select id="symbol" style="background:#0f1621;color:var(--text);border:1px solid var(--border);border-radius:8px;padding:4px 8px;margin-left:6px;">
+          <option value="BTCUSDT" selected>BTC/USDT</option>
+          <option value="ETHUSDT">ETH/USDT</option>
+        </select>
+        ，區間
+        <select id="range" style="background:#0f1621;color:var(--text);border:1px solid var(--border);border-radius:8px;padding:4px 8px;margin-left:6px;">
+          <option value="1M">近 1 個月</option>
+          <option value="3M" selected>近 3 個月</option>
+          <option value="6M">近 6 個月</option>
+          <option value="1Y">近 1 年</option>
+          <option value="3Y">近 3 年</option>
+          <option value="ALL">全部</option>
+        </select>
+        ）
+      </h3>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:8px;">
+        <div class="metric"><div class="k">現價</div><div class="v" id="live_price">—</div></div>
+        <div class="metric"><div class="k">近 N 日滾動高點</div><div class="v" id="live_rh">—</div></div>
+        <div class="metric"><div class="k">觸發價（進場）</div><div class="v" id="live_trigger">—</div></div>
+        <div class="metric" id="live_signal_box"><div class="k">進場訊號</div><div class="v" id="live_signal">—</div></div>
+      </div>
+      <div class="chart-wrap"><canvas id="liveChart"></canvas></div>
+      <div class="footnote" id="live_note">說明：以 Binance 1D K 線計算「近 N 日滾動高點」（<b>不含當日</b>）。現價以 WebSocket 秒級更新。切換交易對／區間後自動更新。</div>
+    </section>
+
+    <!-- 原回測結果區（保留） -->
+    <h3 class="section-title">回測結果（上傳檔）</h3>
+
+    <div class="summary" id="summaryCards">
+      <div class="metric"><div class="k">樣本筆數</div><div class="v" id="m_count">&mdash;</div></div>
+      <div class="metric"><div class="k">區間</div><div class="v" id="m_range">&mdash;</div></div>
+      <div class="metric"><div class="k">進場次數</div><div class="v" id="m_entries">&mdash;</div></div>
+      <div class="metric"><div class="k">是否爆倉</div><div class="v" id="m_liq">&mdash;</div></div>
+      <div class="metric"><div class="k">期末淨值 (USD)</div><div class="v" id="m_equity">&mdash;</div></div>
+      <div class="metric"><div class="k">ROI（保證金基準）</div><div class="v" id="m_roi">&mdash;</div></div>
+    </div>
+
+    <div class="chart-wrap"><canvas id="chart"></canvas></div>
+
+    <div style="display:flex; gap:8px; flex-wrap:wrap; margin:0 6px 10px;">
+      <button id="exportEntries" disabled>下載進場紀錄 CSV</button>
+      <button id="exportSummary" disabled>下載摘要 CSV</button>
+    </div>
+
+    <div>
+      <div class="section-title" style="margin-bottom:6px;">進場紀錄</div>
+      <div class="scrollbox">
+        <table id="entriesTable">
+          <thead><tr></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div style="margin-top:12px;">
+      <div class="section-title" style="margin-bottom:6px;">處理後路徑（avg_price／position_btc／equity／liq_price）</div>
+      <div class="scrollbox">
+        <table id="pathTable">
+          <thead><tr></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script>
+  /* ========== 共用工具 ========== */
+  const $ = s => document.querySelector(s);
+  const iso = d => new Date(d).toISOString().slice(0,10);
+  const fmt = (n,d=2)=> (n==null||isNaN(n))?'—':Number(n).toLocaleString(undefined,{maximumFractionDigits:d});
+  function uiLog(msg){ const el=$('#status'); if(el) el.textContent=msg; }
+
+  /* ========== 即時日線：Binance 1D + WebSocket（可切換交易對與區間） ========== */
+  let liveChart;
+  let ws = null;
+  let lastLivePrice = null;
+  let liveRollingHigh = null;  // 近 N 日最高價（不含當日）
+  let liveTrigger = null;      // = RH * (1 - dd)
+  let liveData = [];           // 用於圖表顯示的切片
+  let liveDataFull = [];       // 完整抓取（用於 RH 計算）
+  let currentSymbol = 'BTCUSDT';
+  let selectedRangeCode = '3M';
+  let lastWSUpdate = 0;        // WebSocket 更新節流
+
+  // 取 K 線：Binance REST（動態交易對）
+  async function fetchBinanceKlines(symbol, limitDays){
+    const url = `https://api.binance.com/api/v3/klines?symbol=${encodeURIComponent(symbol)}&interval=1d&limit=${limitDays}`;
+    const r = await fetch(url);
+    if(!r.ok) throw new Error('Binance K線抓取失敗：HTTP '+r.status);
+    const arr = await r.json();
+    // kline: [openTime, open, high, low, close, volume, closeTime, ...]
+    return arr.map(k => ({ time: new Date(k[0]), close: Number(k[4]) }));
+  }
+
+  // 區間碼轉天數
+  function getRangeDays(code){
+    switch(code){
+      case '1M': return 31;
+      case '3M': return 93;
+      case '6M': return 186;
+      case '1Y': return 366;
+      case '3Y': return 366*3 + 5; // 粗略含閏日
+      case 'ALL': return 1500;     // Binance 單次上限 1500 根
+      default: return 93;          // 預設 3M
+    }
+  }
+
+  // 計算「不含當日」的近 N 日滾動高點（用最後 N 根已完成 K 線）
+  function calcRollingHigh(data, N){
+    if(!data.length) return {rh:null, from:null, to:null};
+    const lastIdx = data.length - 2; // 倒數第二根為最後完成的日K
+    if (lastIdx < 0) return {rh:null, from:null, to:null};
+    const start = Math.max(0, lastIdx - (N - 1));
+    let rh = -Infinity;
+    for(let i=start;i<=lastIdx;i++){
+      if (data[i].close > rh) rh = data[i].close;
+    }
+    return { rh: isFinite(rh)?rh:null, from: data[start]?.time || null, to: data[lastIdx]?.time || null };
+  }
+
+  // 重畫即時日線 Chart
+  function renderLiveChart(){
+    if (typeof Chart === 'undefined') return;
+    const ctx = $('#liveChart').getContext('2d');
+    const labels = liveData.map(x => iso(x.time));
+    const prices = liveData.map(x => x.close);
+
+    const rhLine    = (liveRollingHigh!=null) ? labels.map(_=> liveRollingHigh) : labels.map(_=> null);
+    const trigLine  = (liveTrigger!=null) ? labels.map(_=> liveTrigger) : labels.map(_=> null);
+    const priceLine = (lastLivePrice!=null) ? labels.map(_=> lastLivePrice) : labels.map(_=> null);
+
+    if (liveChart) liveChart.destroy();
+    liveChart = new Chart(ctx,{
+      type:'line',
+      data:{
+        labels,
+        datasets:[
+          { label:`${currentSymbol} 收盤(1D)`, data:prices, pointRadius:0 },
+          { label:'近 N 日滾動高點', data:rhLine, borderDash:[6,4], pointRadius:0 },
+          { label:'觸發價', data:trigLine, borderDash:[3,3], pointRadius:0 },
+          { label:'即時現價', data:priceLine, borderDash:[1,1], pointRadius:0 }
+        ]
+      },
+      options:{
+        responsive:true,
+        resizeDelay: 200,     // Debounce 容器/視窗 resize
+        animation:false,      // 關閉動畫避免高度抖動
+        interaction:{mode:'index',intersect:false},
+        plugins:{ legend:{position:'top'},
+          tooltip:{callbacks:{label:(c)=> c.dataset.label + ': ' + fmt(c.parsed.y,2)}}
+        },
+        scales:{ x:{ticks:{maxRotation:0,autoSkip:true,maxTicksLimit:12}}, y:{beginAtZero:false} }
+      }
+    });
+  }
+
+  // 更新即時卡片顯示與進場訊號
+  function updateLiveInfoUI(){
+    $('#live_price').textContent   = (lastLivePrice!=null)? lastLivePrice.toLocaleString(undefined,{maximumFractionDigits:2}) : '—';
+    $('#live_rh').textContent      = (liveRollingHigh!=null)? liveRollingHigh.toLocaleString(undefined,{maximumFractionDigits:2}) : '—';
+    $('#live_trigger').textContent = (liveTrigger!=null)? liveTrigger.toLocaleString(undefined,{maximumFractionDigits:2}) : '—';
+
+    const box = $('#live_signal_box');
+    const sig = $('#live_signal');
+    if (liveRollingHigh==null || liveTrigger==null || lastLivePrice==null){
+      sig.textContent = '—';
+      box.className = 'metric';
+      return;
+    }
+    if (lastLivePrice <= liveTrigger){
+      sig.textContent = 'YES（達到進場價）';
+      box.className = 'metric ok';
+    } else {
+      sig.textContent = 'NO';
+      box.className = 'metric';
+    }
+  }
+
+  // 啟動 / 更新 即時日線模組（根據 currentSymbol 與 selectedRangeCode）
+  async function refreshLiveDaily(){
+    try{
+      const N = Number($('#rolling').value);
+      const dd = Number($('#dd').value)/100;
+      selectedRangeCode = $('#range') ? $('#range').value : '3M';
+
+      // 需要的總根數 = 區間天數 + N + 安全緩衝(10)
+      const rangeDays = getRangeDays(selectedRangeCode);
+      const need = (selectedRangeCode === 'ALL') ? 1500 : Math.min(1500, rangeDays + N + 10);
+
+      const rows = await fetchBinanceKlines(currentSymbol, need);
+      liveDataFull = rows;
+
+      // 計算 RH（不含當日）
+      const {rh} = calcRollingHigh(liveDataFull, N);
+      liveRollingHigh = rh!=null ? rh : null;
+      liveTrigger = (liveRollingHigh!=null) ? liveRollingHigh * (1 - dd) : null;
+
+      // 供圖表顯示的資料：只切所選區間
+      if (selectedRangeCode === 'ALL'){
+        liveData = liveDataFull.slice();
+      } else {
+        const cut = Math.min(rangeDays, liveDataFull.length);
+        liveData = liveDataFull.slice(liveDataFull.length - cut);
+      }
+
+      // 若還未有即時價，先用最新一根 close 當暫值
+      if (lastLivePrice==null && liveDataFull.length){
+        lastLivePrice = liveDataFull[liveDataFull.length-1].close;
+      }
+
+      updateLiveInfoUI();
+      renderLiveChart();
+      $('#live_note').textContent = `已載入 ${currentSymbol} 的 Binance 1D K 線（區間：${selectedRangeCode}）。近 N 日 RH 不含當日；WS 秒級更新現價。`;
+    }catch(err){
+      console.error(err);
+      $('#live_note').textContent = '無法載入 Binance K 線（可能網路或 CORS）。';
+    }
+  }
+
+  // WebSocket：依 currentSymbol 連不同 stream
+  function startBinanceWS(){
+    stopBinanceWS();
+    try{
+      const stream = `${currentSymbol.toLowerCase()}@miniTicker`;
+      ws = new WebSocket(`wss://stream.binance.com:9443/ws/${stream}`);
+      ws.onopen  = () => { /* 連線成功 */ };
+      ws.onclose = () => { /* 切換交易對或重整時會關閉 */ };
+      ws.onerror = () => { /* 忽略，UI 在 refreshLiveDaily 有提示 */ };
+      ws.onmessage = (ev)=>{
+        try{
+          const msg = JSON.parse(ev.data);
+          const p = Number(msg.c);
+          if (isFinite(p)){
+            lastLivePrice = p;
+            updateLiveInfoUI();
+
+            // 每 250ms 才更新一次「即時現價」水平線
+            const now = Date.now();
+            if (liveChart && (now - lastWSUpdate) >= 250) {
+              lastWSUpdate = now;
+              const idx = liveChart.data.datasets.findIndex(d => d.label === '即時現價');
+              if (idx>=0){
+                const len = liveChart.data.labels.length;
+                liveChart.data.datasets[idx].data = Array(len).fill(p);
+                liveChart.update('none');
+              }
+            }
+          }
+        }catch(_){}
+      };
+    }catch(_){}
+  }
+  function stopBinanceWS(){ if(ws){ try{ws.close();}catch(_){}; ws=null; } }
+
+  function bindLiveAutoRefresh(){
+    // 每 5 分鐘重抓一次日K，避免當日未收的偏移
+    setInterval(refreshLiveDaily, 5*60*1000);
+  }
+
+  async function initLiveModule(){
+    await refreshLiveDaily();
+    startBinanceWS();
+    bindLiveAutoRefresh();
+  }
+
+  // 交易對切換：重置狀態 → 重新抓取與連線
+  $('#symbol').addEventListener('change', async (e)=>{
+    currentSymbol = e.target.value || 'BTCUSDT';
+    lastLivePrice = null;  // 讓 UI 重新以收盤暫值填入
+    await refreshLiveDaily();
+    startBinanceWS();
+  });
+
+  // 區間切換：重新抓取與切片（無需重啟 WS）
+  $('#range').addEventListener('change', async ()=>{
+    await refreshLiveDaily();
+    if (liveChart && lastLivePrice!=null){
+      const idx = liveChart.data.datasets.findIndex(d => d.label === '即時現價');
+      if (idx>=0){
+        const len = liveChart.data.labels.length;
+        liveChart.data.datasets[idx].data = Array(len).fill(lastLivePrice);
+        liveChart.update('none');
+      }
+    }
+  });
+
+  /* ========== 以下保留你的「上傳回測」全部功能，含 CSV 與千分位數字修正 ========== */
+  window.addEventListener('error', (e) => {
+    const el = document.querySelector('#status');
+    if (el) el.textContent = '錯誤：' + (e.message || e.error || e.filename || '未知錯誤');
+  });
+
+  let df = null, chart;
+  let lastRes = null, lastData = null, lastYears = null;
+
+  function toCSV(rows, headerKeys, headerNames){
+    const esc = v => { const s = (v==null) ? '' : String(v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g,'""') + '"' : s; };
+    const lines = [];
+    if (headerNames && headerNames.length) lines.push(headerNames.map(esc).join(','));
+    for (const r of rows){
+      const line = headerKeys.map(k => esc(typeof k === 'function' ? k(r) : r[k]));
+      lines.push(line.join(','));
+    }
+    return '\uFEFF' + lines.join('\n');
+  }
+  function downloadCSV(filename, csvString){
+    const blob = new Blob([csvString], {type:'text/csv;charset=utf-8;'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click();
+    setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 0);
+  }
+
+  async function readFileAsArrayBuffer(file){
+    if (file.size === 0) throw new Error('檔案大小為 0，可能尚未從雲端完整下載');
+    if (file.arrayBuffer) return await file.arrayBuffer();
+    return await new Promise((res, rej) => {
+      const fr = new FileReader(); fr.onload = () => res(fr.result);
+      const onerr = () => rej(fr.error || new Error('FileReader 失敗'));
+      fr.onerror = onerr; fr.readAsArrayBuffer(file);
+    });
+  }
+
+  // CSV 交給 SheetJS 解析，避免含引號與千分位逗號被錯切
+  async function readAnyTabular(file){
+    const name = (file.name || '').toLowerCase();
+    if (name.endsWith('.csv')) {
+      if (typeof XLSX === 'undefined') throw new Error('SheetJS (XLSX) 未載入，請檢查網路/CDN');
+      const text = await file.text();                         // 讀原始 CSV 字串
+      const wb = XLSX.read(text, { type:'string' });         // 交給 SheetJS 解析
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      if (!ws) throw new Error('找不到第一個工作表，請確認檔案內容');
+      const rows = XLSX.utils.sheet_to_json(ws, { header:1, raw:false });
+      return rows;
+    } else {
+      if (typeof XLSX === 'undefined') throw new Error('SheetJS (XLSX) 未載入，請檢查網路/CDN');
+      const ab = await readFileAsArrayBuffer(file);
+      const wb = XLSX.read(ab, { type:'array' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      if (!ws) throw new Error('找不到第一個工作表，請確認檔案內容');
+      const rows = XLSX.utils.sheet_to_json(ws, { header:1, raw:true });
+      return rows;
+    }
+  }
+
+  function pickCol(headers, candidates){
+    const map = {}; headers.forEach((h,i)=> map[String(h||'').trim()] = i);
+    for (const c of candidates) if (map[c] != null) return map[c];
+    const lower = {}; headers.forEach((h,i)=> lower[String(h||'').trim().toLowerCase()] = i);
+    for (const c of candidates) { const k = String(c).toLowerCase(); if (lower[k] != null) return lower[k]; }
+    return -1;
+  }
+
+  // 將帶千分位的字串轉數字
+  function toNumberClean(v){
+    if (v==null || v==='') return NaN;
+    if (typeof v === 'number') return v;
+    if (typeof v === 'string'){
+      const s = v.replace(/,/g,'').trim();      // 去掉千分位逗號
+      const n = Number(s);
+      return n;
+    }
+    return Number(v);
+  }
+
+  function parseRows(rows){
+    if (!rows || !rows.length) throw new Error('工作表沒有資料');
+    const headers = rows[0].map(x => String(x||'').trim());
+    const dateIdx = pickCol(headers, ['日期','date','Date','DATE','時間','Time','Datetime']);
+    const closeIdx = pickCol(headers, ['收市','收盤','收盤價','Close','close','Adj Close','Adj close','收盤價(USD)']);
+    if (dateIdx === -1 || closeIdx === -1) {
+      throw new Error('找不到欄位：目前標題是 [' + headers.join(' / ') + ']，請確認有「日期」與「收市」');
+    }
+    const out = [];
+    for (let i=1;i<rows.length;i++){
+      const r = rows[i]; if (!r) continue;
+      const d = r[dateIdx]; const c = r[closeIdx];
+      if (d == null || c == null || c === '') continue;
+      let dt;
+      if (typeof d === 'number') { dt = new Date(Math.round((d - 25569) * 86400 * 1000)); }
+      else { dt = new Date(d); }
+      const close = toNumberClean(c); // 使用清洗後的數字
+      if (!isNaN(dt.getTime()) && isFinite(close)) out.push({ date: dt, close });
+    }
+    out.sort((a,b)=> a.date - b.date);
+    return out;
+  }
+
+  function filterYears(data, years){
+    if (!data.length) return [];
+    const end = data[data.length-1].date;
+    const start = new Date(end); start.setFullYear(start.getFullYear() - years);
+    return data.filter(x => x.date >= start && x.date <= end);
+  }
+
+  function rollingHighPrev(arr, win){
+    const n = arr.length, out = new Array(n).fill(null);
+    const dq = [];
+    for (let i = 0; i < n; i++){
+      const left = i - win;
+      while (dq.length && dq[0] < left) dq.shift();
+      out[i] = dq.length ? arr[dq[0]] : null;
+      while (dq.length && arr[dq[dq.length-1]] <= arr[i]) dq.pop();
+      dq.push(i);
+    }
+    return out;
+  }
+
+  function quarterKey(d){
+    const y = d.getFullYear(); const q = Math.floor(d.getMonth()/3)+1;
+    return y + '-Q' + q;
+  }
+
+  function simulate(data, rollingDays, ddPct, leverage, margin, lotUSD, maxPerQuarter){
+    const prices = data.map(x => x.close);
+    const prevHigh = rollingHighPrev(prices, rollingDays);
+    const entries = [];
+    const maxNotional = leverage * margin;
+    let cumNotional = 0, posBTC = 0, avgPrice = NaN;
+    const countByQ = Object.create(null);
+
+    for (let i=0;i<data.length;i++){
+      const p  = prices[i];
+      const ph = prevHigh[i];
+      if (ph == null) continue;
+      const trigger = ph * (1 - ddPct);
+      const qk = quarterKey(data[i].date);
+      const used = countByQ[qk] || 0;
+
+      if (p <= trigger && cumNotional < maxNotional && used < maxPerQuarter){
+        const addNotional = Math.min(lotUSD, maxNotional - cumNotional);
+        if (addNotional > 0){
+          const addBTC = addNotional / p;
+          const newPosBTC = posBTC + addBTC;
+          const newAvg = (posBTC > 0) ? (avgPrice*posBTC + p*addBTC)/(newPosBTC) : p;
+
+          const equityAfter = (margin + (p - newAvg) * newPosBTC);
+          const notionalNow = newPosBTC * p;
+          const levX = (equityAfter > 0) ? (notionalNow / equityAfter) : null;
+
+          avgPrice = newAvg; posBTC = newPosBTC; cumNotional += addNotional;
+
+          entries.push({
+            日期: data[i].date, 價格: p, 名目部位USD: addNotional, 新增BTC: addBTC,
+            累積名目USD: cumNotional, 累積BTC: posBTC, 加權平均價: avgPrice,
+            滾動高點: ph, 觸發價: trigger, 回撤觸發百分比: ddPct*100,
+            安全邊際百分比: ph>0?((ph-p)/ph)*100:null, 倉位槓桿倍數: levX
+          });
+          countByQ[qk] = used + 1;
+        }
+      }
+    }
+
+    const path = data.map(x => ({ 日期:x.date, 收市:x.close, avg_price:NaN, position_btc:0, equity:margin, liq_price:null }));
+    if (entries.length){
+      let eIdx=0, curAvg=NaN, curPos=0;
+      for (let i=0;i<path.length;i++){
+        const d = path[i].日期, p = path[i].收市;
+        while (eIdx < entries.length && entries[eIdx].日期 <= d){
+          curAvg = entries[eIdx].加權平均價; curPos = entries[eIdx].累積BTC; eIdx++;
+        }
+        path[i].avg_price = curAvg;
+        path[i].position_btc = curPos;
+        path[i].equity = isFinite(curAvg) ? (margin + (p - curAvg)*curPos) : margin;
+        path[i].liq_price = (curPos > 0 && isFinite(curAvg)) ? (curAvg - (margin / curPos)) : null;
+      }
+    }
+
+    const liquidated = path.some(r => r.equity <= 0);
+    let roi, equityEnd;
+    if (!entries.length) { roi = 0; equityEnd = margin; }
+    else if (liquidated) { roi = -1; equityEnd = 0; }
+    else { equityEnd = path[path.length-1].equity; roi = equityEnd/margin - 1; }
+
+    return { entries, path, liquidated, roi, equityEnd };
+  }
+
+  function renderSummary(data, res, years){
+    $('#m_count').textContent = data.length || '—';
+    $('#m_range').textContent = data.length ? (iso(data[0].date) + ' → ' + iso(data[data.length-1].date) + '（近 ' + years + ' 年）') : '—';
+    $('#m_entries').textContent = res.entries.length;
+    const liqBox = $('#m_liq').parentElement.parentElement;
+    $('#m_liq').textContent = res.liquidated ? '是' : '否';
+    liqBox.className = 'metric ' + (res.liquidated ? 'bad' : 'ok');
+    $('#m_equity').textContent = fmt(res.equityEnd,2);
+    const roiBox = $('#m_roi').parentElement.parentElement;
+    $('#m_roi').textContent = (res.roi==null)?'—':(res.roi*100).toFixed(2)+'%';
+    roiBox.className = 'metric ' + (res.roi>0?'ok':(res.roi<0?'bad':'')); 
+  }
+
+  function renderEntriesTable(list){
+    const head = $('#entriesTable thead tr'), body = $('#entriesTable tbody');
+    head.innerHTML=''; body.innerHTML='';
+    const cols = ['日期','價格','名目部位USD','新增BTC','累積名目USD','累積BTC','加權平均價','滾動高點','觸發價','回撤觸發%','安全邊際%','倉位槓桿倍數×'];
+    cols.forEach(c=>{ const th=document.createElement('th'); th.textContent=c; head.appendChild(th); });
+    list.forEach(r=>{
+      const levx = (r.倉位槓桿倍數!=null && isFinite(r.倉位槓桿倍數)) ? r.倉位槓桿倍數 : null;
+      const tr=document.createElement('tr');
+      [
+        iso(r.日期), fmt(r.價格,2), fmt(r.名目部位USD,0), fmt(r.新增BTC,8),
+        fmt(r.累積名目USD,0), fmt(r.累積BTC,8), fmt(r.加權平均價,2),
+        fmt(r.滾動高點,2), fmt(r.觸發價,2), fmt(r.回撤觸發百分比,2), fmt(r.安全邊際百分比,2),
+        levx==null ? '—' : fmt(levx,2)
+      ].forEach(v=>{ const td=document.createElement('td'); td.textContent=v; tr.appendChild(td); });
+      body.appendChild(tr);
+    });
+  }
+
+  function renderPathTable(path){
+    const head=$('#pathTable thead tr'), body=$('#pathTable tbody');
+    head.innerHTML=''; body.innerHTML='';
+    const cols=['日期','收市','avg_price','position_btc','equity','liq_price'];
+    cols.forEach(c=>{ const th=document.createElement('th'); th.textContent=c; head.appendChild(th); });
+    path.forEach(r=>{
+      const tr=document.createElement('tr');
+      [iso(r.日期),fmt(r.收市,2),fmt(r.avg_price,2),fmt(r.position_btc,8),fmt(r.equity,2),fmt(r.liq_price,2)]
+        .forEach(v=>{ const td=document.createElement('td'); td.textContent=v; tr.appendChild(td); });
+      body.appendChild(tr);
+    });
+  }
+
+  function renderChart(data, entries, path){
+    if (typeof Chart === 'undefined') return;
+    const ctx = $('#chart').getContext('2d');
+    const labels = data.map(x=> iso(x.date));
+    the_prices = data.map(x=> x.close);
+    const price = the_prices; // 修正命名
+    const avgLine = path.map(x=> isNaN(x.avg_price)?null:x.avg_price);
+    const liqLine = path.map(x=> (x && x.liq_price!=null)? x.liq_price : null);
+
+    const entryIdx = entries.map(e=> labels.indexOf(iso(e.日期)));
+    const entryY   = entries.map(e=> e.價格);
+
+    if (chart) chart.destroy();
+    chart = new Chart(ctx,{
+      type:'line',
+      data:{ labels,
+        datasets:[
+          { label:'BTC 收市', data:price, pointRadius:0 },
+          { label:'加權平均價', data:avgLine, borderDash:[6,4], pointRadius:0 },
+          { label:'爆倉線（動態）', data:liqLine, borderDash:[2,2], pointRadius:0 },
+          { label:'進場點', type:'scatter',
+            data: labels.map((_,i)=> (entryIdx.indexOf(i)>=0?entryY[entryIdx.indexOf(i)]:null)),
+            showLine:false, pointRadius:4 }
+        ]},
+      options:{
+        responsive:true,
+        resizeDelay: 200,
+        animation:false,
+        interaction:{mode:'index',intersect:false},
+        plugins:{ legend:{position:'top'},
+          tooltip:{callbacks:{label:(c)=> c.dataset.label + ': ' + fmt(c.parsed.y,2)}}
+        },
+        scales:{ x:{ticks:{maxRotation:0,autoSkip:true,maxTicksLimit:12}}, y:{beginAtZero:false} }
+      }
+    });
+  }
+
+  function computeIfReady(){
+    if (!df || !df.length) { uiLog('已選檔，但沒有有效資料列'); return; }
+    const years = Number($('#years').value);
+    const rollingDays = Number($('#rolling').value);
+    const dd = Number($('#dd').value)/100;
+    const lev = Number($('#lev').value);
+    const margin = Number($('#margin').value);
+    const lot = Number($('#lot').value);
+    const maxPerQuarter = Number($('#maxPerQ').value);
+
+    const cut = filterYears(df, years);
+    if (!cut.length) { uiLog('期間內沒有資料'); return; }
+    const res = simulate(cut, rollingDays, dd, lev, margin, lot, maxPerQuarter);
+
+    lastRes = res; lastData = cut; lastYears = years;
+
+    renderSummary(cut, res, years);
+    renderEntriesTable(res.entries);
+    renderPathTable(res.path);
+    renderChart(cut, res.entries, res.path);
+    uiLog('完成：' + res.entries.length + ' 次進場' + (res.liquidated?'（已爆倉）':'') + '；樣本 ' + cut.length + ' 筆');
+  }
+
+  // 綁定事件（上傳回測）
+  $('#file').addEventListener('change', async (e) => {
+    const f = e.target.files && e.target.files[0];
+    if (!f) { uiLog('沒有收到檔案，請再選一次'); return; }
+    uiLog('檔名：' + f.name + '，大小：' + f.size + ' bytes，讀取中…');
+    try {
+      const rows = await readAnyTabular(f);
+      uiLog('已讀取 ' + rows.length + ' 行，解析中…');
+      df = parseRows(rows);
+      uiLog('已解析 ' + df.length + ' 筆（' + iso(df[0].date) + ' → ' + iso(df[df.length-1].date) + '），計算中…');
+      computeIfReady();
+    } catch (err) {
+      console.error(err);
+      uiLog('錯誤：' + (err.message || err));
+      alert(err.message || err);
+    }
+  });
+
+  // 參數改變 → 同步更新「回測」與「即時日線」
+  let debounce = null;
+  ['years','rolling','dd','lev','margin','lot','maxPerQ'].forEach(id => {
+    document.getElementById(id).addEventListener('input', () => {
+      clearTimeout(debounce);
+      debounce = setTimeout(() => {
+        if (df) computeIfReady();      // 有上傳才重算回測
+        refreshLiveDaily();            // 無論如何都刷新右側即時日線（依 rolling/dd）
+      }, 150);
+    });
+  });
+
+  // 初始啟動 即時日線（預設 BTCUSDT、近 3 個月）
+  initLiveModule();
+</script>
+</body>
+</html>
