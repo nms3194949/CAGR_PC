@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>雙贏策略｜配息試算＋投組年化分析（Excel 無代碼版）</title>
+<title>雙贏策略｜配息試算＋投組年化分析</title>
 <style>
   :root{ --deep:#0A1221; --gold:#C9A227; --gold-soft:#E9D18A; --card:#0C152A; --pos:#39C27A; --neg:#E25A5A; --field-bg:#101b33; --input-bg:#071226; --line:rgba(233,209,138,.25); }
   html,body{margin:0;background:var(--deep);color:#fff;font-family:"Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif}
@@ -24,7 +24,7 @@
   .title{margin:0 0 8px;font-weight:700;font-size:22px;background:linear-gradient(90deg,var(--gold),var(--gold-soft));-webkit-background-clip:text;background-clip:text;color:transparent;-webkit-text-fill-color:transparent}
   .subtitle{margin:0 0 16px;color:#d7dbe7;font-size:14px}
 
-  /* 匯出時改為純色金色，避免漸層被當圖片整塊 */
+  /* 匯出時改為純色金色 */
   .exporting .title{background:none!important;-webkit-background-clip:initial!important;background-clip:initial!important;-webkit-text-fill-color:initial!important;color:var(--gold)!important}
 
   /* Forms */
@@ -117,7 +117,10 @@
       <h1 class="title">投資組合｜1/3/5 年年化（CAGR）與配息拆解</h1>
       <p class="subtitle">輸入每檔基金的「近 1/3/5 年累積報酬率(%)」與「配息率(%)」、配置比例(%)。系統年化為 CAGR，估算「資本成長率 = CAGR − 配息率」，再依配置加權得到投組指標。</p>
 
-      <!-- 工具列：常用基金 → 帶入 A~E；右側 Excel 匯入/匯出 -->
+      <!-- 嚴格對名的候選清單 -->
+      <datalist id="fundNamesList"></datalist>
+
+      <!-- 工具列 -->
       <div class="panel" style="margin-top:0;margin-bottom:12px;padding:16px">
         <div class="form-grid" style="grid-template-columns:2fr 1fr auto auto auto;">
           <div class="field">
@@ -148,7 +151,6 @@
               <button class="btn" id="btnExportXlsx">匯出 Excel</button>
             </div>
           </div>
-          <!-- 新增：清除表格 -->
           <div class="field" style="display:flex;flex-direction:column;gap:8px;justify-content:flex-end">
             <label>清除表格</label>
             <button class="btn" id="btnClearFundTable" style="width:100%;background:linear-gradient(90deg,#E25A5A,#ff7676);color:#fff;">清除數據</button>
@@ -180,7 +182,7 @@
         </thead>
         <tbody>
           <tr>
-            <td><input class="control name" type="text" placeholder="基金A"></td>
+            <td><input class="control name" type="text" placeholder="基金A" list="fundNamesList"></td>
             <td><input class="control fin r1" type="number" step="0.01"></td>
             <td><input class="control fin r3" type="number" step="0.01"></td>
             <td><input class="control fin r5" type="number" step="0.01"></td>
@@ -188,7 +190,7 @@
             <td><input class="control fin wt" type="number" step="0.01"></td>
           </tr>
           <tr>
-            <td><input class="control name" type="text" placeholder="基金B"></td>
+            <td><input class="control name" type="text" placeholder="基金B" list="fundNamesList"></td>
             <td><input class="control fin r1" type="number" step="0.01"></td>
             <td><input class="control fin r3" type="number" step="0.01"></td>
             <td><input class="control fin r5" type="number" step="0.01"></td>
@@ -196,7 +198,7 @@
             <td><input class="control fin wt" type="number" step="0.01"></td>
           </tr>
           <tr>
-            <td><input class="control name" type="text" placeholder="基金C"></td>
+            <td><input class="control name" type="text" placeholder="基金C" list="fundNamesList"></td>
             <td><input class="control fin r1" type="number" step="0.01"></td>
             <td><input class="control fin r3" type="number" step="0.01"></td>
             <td><input class="control fin r5" type="number" step="0.01"></td>
@@ -204,7 +206,7 @@
             <td><input class="control fin wt" type="number" step="0.01"></td>
           </tr>
           <tr>
-            <td><input class="control name" type="text" placeholder="基金D"></td>
+            <td><input class="control name" type="text" placeholder="基金D" list="fundNamesList"></td>
             <td><input class="control fin r1" type="number" step="0.01"></td>
             <td><input class="control fin r3" type="number" step="0.01"></td>
             <td><input class="control fin r5" type="number" step="0.01"></td>
@@ -212,7 +214,7 @@
             <td><input class="control fin wt" type="number" step="0.01"></td>
           </tr>
           <tr>
-            <td><input class="control name" type="text" placeholder="基金E"></td>
+            <td><input class="control name" type="text" placeholder="基金E" list="fundNamesList"></td>
             <td><input class="control fin r1" type="number" step="0.01"></td>
             <td><input class="control fin r3" type="number" step="0.01"></td>
             <td><input class="control fin r5" type="number" step="0.01"></td>
@@ -222,7 +224,7 @@
         </tbody>
       </table>
 
-      <!-- Outputs per fund -->
+      <!-- per fund 輸出（已移除比對欄） -->
       <div class="panel" style="margin-top:16px">
         <table id="fundOutputTable">
           <thead>
@@ -270,9 +272,15 @@
               <td id="pf_ltv3" class="em">—</td>
               <td id="pf_ltv5" class="em">—</td>
             </tr>
+            <tr>
+              <td title="以你輸入的基金名稱在相關係數矩陣中嚴格對名（trim 後完全一致），對所有成對(i<j)依 wi·wj 加權計算平均 ρ。">平均相關係數（加權，ρ̄）</td>
+              <td id="pf_corr" class="em">—</td>
+              <td class="muted">—</td>
+              <td class="muted">—</td>
+            </tr>
           </tbody>
         </table>
-        <p class="muted" style="margin-top:8px">※ 近 3/5 年為「累積報酬率 → 幾何年化」；近 1 年即當年報酬。LTV > 80% 標紅。</p>
+        <p id="pf_corr_note" class="muted" style="margin-top:8px;font-size:12px"></p>
       </div>
     </section>
   </section>
@@ -286,6 +294,42 @@
   {"name":"鋒裕匯理基金新興市場債券 A 美元 (穩定月配息)","r1":8.56,"r3":39.91,"r5":15.07,"dy":17.16},
   {"name":"高盛環球非投資等級債券基金X股美元(月配息)","r1":7.96,"r3":35.95,"r5":17.48,"dy":14.31}
 ]
+</script>
+
+<!-- 相關係數矩陣（完全使用你檔案第一行的原始名稱）-->
+<script id="corrMatrix" type="application/json">
+{
+  "labels": [
+    "貝萊德全球智慧數據股票入息基金 A6 美元 (穩定配息) - (配現金)",
+    "安聯歐洲高息股票基金-AM穩定月收類股(美元避險) - (配現金)",
+    "貝萊德全球智慧數據股票入息基金 A2 美元",
+    "聯博-房貸收益基金AA(穩定月配)級別美元 - (配現金)",
+    "施羅德環球基金系列－環球收益成長(美元)A-月配固定2 - (配現金)",
+    "摩根投資基金－歐洲策略股息基金 - JPM歐洲策略股息(美元對沖) - A股(每月派息)",
+    "聯博-優化波動股票基金A級別美元",
+    "貝萊德世界金融基金 A2 美元",
+    "貝萊德世界科技基金 A2 美元",
+    "安聯歐洲高息股票基金-AMg穩定月收總收益類股(月配息)-美元避險",
+    "安聯收益成長 AM穩定月收",
+    "安本基金-前緣市場債券基金 A 月配息 美元 - (配現金)",
+    "安聯收益成長基金-AMg7月收總收益類股(美元) - (配現金)"
+  ],
+  "matrix": [
+    [1,0.81,0.88,0.44,0.88,0.82,0.85,0.84,0.81,0.81,0.85,0.43,0.82],
+    [0.81,1,0.86,0.50,0.91,0.92,0.82,0.86,0.82,0.97,0.86,0.49,0.85],
+    [0.88,0.86,1,0.50,0.94,0.91,0.93,0.91,0.92,0.86,0.93,0.47,0.92],
+    [0.44,0.50,0.50,1,0.53,0.50,0.48,0.47,0.47,0.51,0.50,0.95,0.49],
+    [0.88,0.91,0.94,0.53,1,0.93,0.91,0.92,0.90,0.90,0.93,0.52,0.91],
+    [0.82,0.92,0.91,0.50,0.93,1,0.91,0.91,0.88,0.91,0.92,0.50,0.90],
+    [0.85,0.82,0.93,0.48,0.91,0.91,1,0.90,0.92,0.81,0.90,0.47,0.90],
+    [0.84,0.86,0.91,0.47,0.92,0.91,0.90,1,0.90,0.86,0.91,0.46,0.90],
+    [0.81,0.82,0.92,0.47,0.90,0.88,0.92,0.90,1,0.82,0.90,0.47,0.90],
+    [0.81,0.97,0.86,0.51,0.90,0.91,0.81,0.86,0.82,1,0.85,0.50,0.85],
+    [0.85,0.86,0.93,0.50,0.93,0.92,0.90,0.91,0.90,0.85,1,0.49,0.92],
+    [0.43,0.49,0.47,0.95,0.52,0.50,0.47,0.46,0.47,0.50,0.49,1,0.48],
+    [0.82,0.85,0.92,0.49,0.91,0.90,0.90,0.90,0.90,0.85,0.92,0.48,1]
+  ]
+}
 </script>
 
 <!-- libs -->
@@ -332,59 +376,25 @@ function applyPresetToRow(rowIdx, presetIndex){
   recomputePortfolio();
 }
 
-/* Excel 匯入/匯出（欄位：基金名稱、近1年%、近3年累積%、近5年累積%、配息率%） */
-const HEADER_MAP={
-  name:['基金名稱','name','基金','名稱'],
-  r1:['近1年%','r1','1Y','1-year'],
-  r3:['近3年累積%','r3','3Y Acc','3-year acc'],
-  r5:['近5年累積%','r5','5Y Acc','5-year acc'],
-  dy:['配息率%','dy','Yield%','yield']
-};
+/* Excel 匯入/匯出 */
+const HEADER_MAP={name:['基金名稱','name','基金','名稱'], r1:['近1年%','r1','1Y','1-year'], r3:['近3年累積%','r3','3Y Acc','3-year acc'], r5:['近5年累積%','r5','5Y Acc','5-year acc'], dy:['配息率%','dy','Yield%','yield']};
 function pick(row,keys){ for(const k of keys){ if(Object.prototype.hasOwnProperty.call(row,k)&&row[k]!=='') return row[k]; } return undefined; }
-
-// 解析百分比欄位
 function parsePercentCell(v){
   if (v === '' || v == null) return null;
-
-  if (typeof v === 'string') {
-    const s = v.trim();
-    if (s.endsWith('%')) {
-      const n = parseFloat(s.slice(0, -1));
-      return isNaN(n) ? null : n; // 已是百分點
-    }
-    const n = parseFloat(s);
-    if (isNaN(n)) return null;
-    return n * 100; // 純數字字串，一律 ×100
-  }
-
-  if (typeof v === 'number') {
-    return v * 100; // Excel 百分比儲存格（0.0856、1.31、-0.05）→ 8.56、131、-5
-  }
-
+  if (typeof v === 'string') { const s=v.trim(); if (s.endsWith('%')) { const n=parseFloat(s.slice(0,-1)); return isNaN(n)?null:n; } const n=parseFloat(s); return isNaN(n)?null:n*100; }
+  if (typeof v === 'number') { return v*100; }
   return null;
 }
-
 function sheetToCatalog(ws){
-  const rows=XLSX.utils.sheet_to_json(ws,{defval:''});
-  const out=[];
+  const rows=XLSX.utils.sheet_to_json(ws,{defval:''}); const out=[];
   rows.forEach(r=>{
     const name=pick(r,HEADER_MAP.name); if(!name) return;
-    const item={
-      name:String(name).trim(),
-      r1:parsePercentCell(pick(r,HEADER_MAP.r1)),
-      r3:parsePercentCell(pick(r,HEADER_MAP.r3)),
-      r5:parsePercentCell(pick(r,HEADER_MAP.r5)),
-      dy:parsePercentCell(pick(r,HEADER_MAP.dy))
-    };
-    ['r1','r3','r5','dy'].forEach(k=>{
-      if(item[k]!=null && isFinite(item[k])) item[k]=Math.round(item[k]*100)/100; // 小數第2位
-    });
+    const item={ name:String(name).trim(), r1:parsePercentCell(pick(r,HEADER_MAP.r1)), r3:parsePercentCell(pick(r,HEADER_MAP.r3)), r5:parsePercentCell(pick(r,HEADER_MAP.r5)), dy:parsePercentCell(pick(r,HEADER_MAP.dy)) };
+    ['r1','r3','r5','dy'].forEach(k=>{ if(item[k]!=null && isFinite(item[k])) item[k]=Math.round(item[k]*100)/100; });
     out.push(item);
   });
   return out;
 }
-
-// 匯出純數字（不帶%）
 function catalogToAOA(cat){
   const header=['基金名稱','近1年%','近3年累積%','近5年累積%','配息率%'];
   const n2=v=>(v==null||!isFinite(v))?'':Number(v).toFixed(2);
@@ -413,7 +423,49 @@ $('btnExportXlsx').addEventListener('click',()=>{
   }catch(err){ alert('Excel 匯出失敗：'+err.message); }
 });
 
-/* ===== 投組輸入/計算 ===== */
+/* ===== 相關係數：嚴格名稱比對 + datalist ===== */
+let CORR_DB=null, CORR_IDX=new Map();
+(function loadCorr(){
+  try{
+    const js=JSON.parse(document.getElementById('corrMatrix').textContent.trim());
+    CORR_DB=js; window.CORR_DB = js;
+    js.labels.forEach((name,i)=>CORR_IDX.set(name.trim(), i));
+    const dl = document.getElementById('fundNamesList');
+    if (dl) dl.innerHTML = js.labels.map(n => `<option value="${n}"></option>`).join('');
+  }catch(e){ CORR_DB=null; }
+})();
+// 嚴格比對（僅 trim）
+function matchIndexByName(raw){
+  if(!raw) return null;
+  const t=raw.trim();
+  return CORR_IDX.has(t) ? CORR_IDX.get(t) : null;
+}
+// 計算加權平均相關係數
+function computeWeightedCorrelation(selected){
+  if(!CORR_DB) return {rho:null, pairs:0, ignored:[], used:[]};
+  const idxs=[], ws=[], usedNames=[], ignored=[];
+  selected.forEach(({name,w})=>{
+    const idx=matchIndexByName(name);
+    if(idx!=null && isFinite(w) && w>0){
+      idxs.push(idx); ws.push(w); usedNames.push(CORR_DB.labels[idx]);
+    }else{
+      if((name||'').trim()!=='' && w>0) ignored.push(name);
+    }
+  });
+  if(idxs.length<2) return {rho:null, pairs:0, ignored, used:usedNames};
+  let num=0, den=0, pairs=0;
+  for(let i=0;i<idxs.length;i++){
+    for(let j=i+1;j<idxs.length;j++){
+      const wi=ws[i], wj=ws[j];
+      const rho=CORR_DB.matrix[idxs[i]][idxs[j]];
+      if(isFinite(rho)){ num+=wi*wj*rho; den+=wi*wj; pairs++; }
+    }
+  }
+  const rho=den>0?(num/den):null;
+  return {rho, pairs, ignored, used:usedNames};
+}
+
+/* ===== per-fund 輸出表渲染 ===== */
 const inputTbody=document.querySelector('#fundInputTable tbody');
 const outputBody=document.getElementById('fundRows');
 const defaultNames=['基金A','基金B','基金C','基金D','基金E'];
@@ -443,13 +495,13 @@ function cagrRow(f){
 function spanPct(v){ if(!isFinite(v)) return '—'; const cls=v<0?'neg':''; return `<span class="${cls}">${(v*100).toFixed(2)}%</span>`; }
 function renderRows(rows){
   outputBody.innerHTML='';
-  rows.forEach(r=>{
+  rows.forEach((r)=>{
     const tr=document.createElement('tr');
     tr.innerHTML=`
       <td>${r.name}</td>
       <td>${spanPct(r.c1)}</td>
       <td>${spanPct(r.c3)}</td>
-      <td>${spanPct(r.c5)}</td>
+      <td>${r.c5===undefined?'—':spanPct(r.c5)}</td>
       <td>${spanPct(r.diff3)}</td>
       <td>${spanPct(r.cap1)}</td>
       <td>${spanPct(r.cap3)}</td>
@@ -482,7 +534,7 @@ function updateLTVRow(cap1,cap3,cap5){
   paint('pf_ltv1',l1); paint('pf_ltv3',l3); paint('pf_ltv5',l5);
 }
 
-/* ===== 投組加權匯總 ===== */
+/* ===== 投組加權匯總（含 ρ̄） ===== */
 function calcPortfolio(rows){
   const valid=rows.filter(f=>isFinite(f.wt)&&f.wt>0);
   const sumW=valid.reduce((s,f)=>s+f.wt,0);
@@ -500,6 +552,18 @@ function calcPortfolio(rows){
   const dyTxt=isFinite(dy)?(dy*100).toFixed(2)+'%':'—';
   ['pf_div1','pf_div3','pf_div5'].forEach(id=>$(id).textContent=dyTxt);
   [['pf_cap1',cap1],['pf_cap3',cap3],['pf_cap5',cap5]].forEach(([id,val])=>{ const el=$(id); el.textContent=isFinite(val)?(val*100).toFixed(2)+'%':'—'; el.classList.toggle('neg',isFinite(val)&&val<0); });
+
+  // 平均相關係數 ρ̄
+  const selected = norm.map(f=>({name:f.name, w:f.w})).filter(x=>x.w>0);
+  const {rho, pairs, ignored, used} = computeWeightedCorrelation(selected);
+  const corrEl = $('pf_corr');
+  if(rho==null){ corrEl.textContent='—'; }
+  else{ corrEl.textContent = Number(rho).toFixed(3); }
+  const note = $('pf_corr_note');
+  const miss = ignored && ignored.length ? `（未納入：${ignored.join('、')}）` : '';
+  note.textContent = (used && used.length>=2)
+    ? `以 ${used.length} 檔可匹配基金計算，共 ${pairs} 組成對；ρ̄ = Σ wi·wj·ρij / Σ wi·wj ${miss}`
+    : `尚無可匹配的基金成對可計算平均相關係數。${miss}`;
 
   updateLTVRow(cap1,cap3,cap5);
 }
@@ -536,7 +600,7 @@ function computeCashflow(){
   $('vEstReturn').textContent=isFinite(estReturnPct)?(estReturnPct*100).toFixed(2)+'%':'—';
   $('vRatio').textContent=ratioObj?(ratioObj.ratio*100).toFixed(0)+'%':'自訂';
 
-  $('loanRateMirror').value=(parseFloat(loanRateEl.value)||0).toFixed(2); // 鏡射
+  $('loanRateMirror').value=(parseFloat(loanRateEl.value)||0).toFixed(2);
   if(typeof recomputePortfolio==='function') recomputePortfolio();
 }
 ['input','change'].forEach(evt=>{
@@ -567,35 +631,19 @@ $('applyPresetBtn').addEventListener('click',()=>{
   applyPresetToRow(row,idx);
 });
 
-/* ===== 清除表格（無確認視窗，清完自動回到基金A並重置選單） ===== */
+/* ===== 清除表格 ===== */
 function clearFundInputs() {
-  // 清空 A~E 的所有輸入欄位
   document.querySelectorAll('#fundInputTable tbody tr input.control').forEach(inp => inp.value = '');
-
-  // 清空每檔基金的年化結果表
   outputBody.innerHTML = '';
-
-  // 重置投組總覽指標
-  ['pf_cagr1','pf_cagr3','pf_cagr5','pf_div1','pf_div3','pf_div5','pf_cap1','pf_cap3','pf_cap5','pf_ltv1','pf_ltv3','pf_ltv5']
+  ['pf_cagr1','pf_cagr3','pf_cagr5','pf_div1','pf_div3','pf_div5','pf_cap1','pf_cap3','pf_cap5','pf_ltv1','pf_ltv3','pf_ltv5','pf_corr']
     .forEach(id => { const el=$(id); el.textContent='—'; el.classList.remove('neg','pos','em','gold'); });
-
-  // 重置「常用基金」下拉選單
+  $('pf_corr_note').textContent='';
   $('presetSelect').value = '';
-
-  // 重新計算（會把畫面狀態一併刷新）
   recomputePortfolio();
-
-  // 切到「投組年化分析」分頁
   setTab('pf');
-
-  // 聚焦到「基金A」第一列的名稱欄位，並捲動到視窗中央
   const firstName = document.querySelector('#fundInputTable tbody tr:first-child .name');
-  if (firstName) {
-    firstName.focus();
-    firstName.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  }
+  if (firstName) { firstName.focus(); firstName.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
 }
-// 綁定清除按鈕
 $('btnClearFundTable').addEventListener('click', clearFundInputs);
 
 /* ===== 綁定：A~E 任一欄位變更就自動重算 ===== */
